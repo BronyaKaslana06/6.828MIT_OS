@@ -80,3 +80,25 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+// return free memory size
+uint64
+free_mem(void)
+{
+  struct run *p;
+  // num: free page number
+  uint64 num = 0;
+  // spinlock
+  acquire(&kmem.lock);
+  p = kmem.freelist;  //work pointer
+  // travel node list
+  while (p)
+  {
+    num++;
+    p = p->next;
+  }
+  // spinlock
+  release(&kmem.lock);
+  // memory size = num*PGSIZE
+  return num * PGSIZE;
+}

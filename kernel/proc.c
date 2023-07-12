@@ -291,6 +291,9 @@ fork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
+  //copy trace_mask to children process
+  np->trace_mask = p->trace_mask;
+
   pid = np->pid;
 
   np->state = RUNNABLE;
@@ -692,4 +695,25 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+//return number of active process
+uint64
+proc_number(void)
+{
+  struct proc *p;
+  uint64 num = 0;
+  // visit all process
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    // lock
+    acquire(&p->lock);
+    if (p->state != UNUSED)
+    {
+      num++;
+    }
+    // lock
+    release(&p->lock);
+  }
+  return num;
 }
