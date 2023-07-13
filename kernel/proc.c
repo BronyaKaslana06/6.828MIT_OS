@@ -34,12 +34,12 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      //char *pa = kalloc();
+      //if(pa == 0)
+      //  panic("kalloc");
+      //uint64 va = KSTACK((int) (p - proc));
+      //kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      //p->kstack = va;
   }
   kvminithart();
 }
@@ -121,6 +121,26 @@ found:
     return 0;
   }
 
+  //add code to call user kernel pagetable
+  p->kernelpagetable = uvmKernelInit(p);
+  if (p->kernelpagetable == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // Allocate a page for the process's kernel stack
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int) (p - proc));
+  //kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  //p->kstack = va;
+  // mapping virtual address and physical address
+  uvmmap(p->kernelpagetable,va, (uint64)pa,PGSIZE,PTE_R | PTE_W);
+  p->kstack = va;
+
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -128,6 +148,27 @@ found:
   p->context.sp = p->kstack + PGSIZE;
 
   return p;
+}
+
+
+void 
+proc_freeKernelPageTable(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V)){
+      pagetable[i] = 0;
+      if ((pte & (PTE_R|PTE_W|PTE_X)) == 0)
+      {
+        uint64 child = PTE2PA(pte);
+        proc_freeKernelPageTable((pagetable_t)child);
+      }
+    } else if(pte & PTE_V){
+      panic("proc free kpt: leaf");
+    }
+  }
+  kfree((void*)pagetable);
 }
 
 // free a proc structure and the data hanging from it,
@@ -139,8 +180,19 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  // free kernel stack
+  if (p->kstack)
+  {
+    pte_t* pte = walk(p->kernelpagetable, p->kstack, 0);
+    if (pte == 0)
+      panic("freeproc: kstack");
+    kfree((void*)PTE2PA(*pte));
+  }
+  p->kstack = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if (p->kernelpagetable)
+    proc_freeKernelPageTable(p->kernelpagetable);
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -221,6 +273,8 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  vmcopypage(p->pagetable, p->kernelpagetable, 0, p->sz);    //add code
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -243,9 +297,13 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    // cannot cover PLIC
+   /*  if (PGROUNDUP(sz + n) >= PLIC)
+      return -1; */
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    //vmcopypage(p->pagetable, p->kernelpagetable, sz-n, sz);   //add code
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
@@ -274,7 +332,7 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
-
+  vmcopypage(np->pagetable,np->kernelpagetable,0,np->sz);   //add code
   np->parent = p;
 
   // copy saved user registers.
@@ -288,6 +346,8 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+  
+  //vmcopypage(np->pagetable,np->kernelpagetable,0,np->sz);   //add code
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
@@ -473,6 +533,10 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        // load the process's kernel page table
+        w_satp(MAKE_SATP(p->kernelpagetable));
+		    // flush TLB
+        sfence_vma();
         swtch(&c->context, &p->context);
 
         // Process is done running for now.

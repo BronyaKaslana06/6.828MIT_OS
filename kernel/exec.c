@@ -57,6 +57,10 @@ exec(char *path, char **argv)
     if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
       goto bad;
   }
+  //add code, restrict PLIC
+  if(sz>=PLIC)
+    goto bad;
+  
   iunlockput(ip);
   end_op();
   ip = 0;
@@ -74,6 +78,13 @@ exec(char *path, char **argv)
   uvmclear(pagetable, sz-2*PGSIZE);
   sp = sz;
   stackbase = sp - PGSIZE;
+
+  //release old process pagetable map
+  uvmunmap(p->kernelpagetable,0,PGROUNDUP(oldsz)/PGSIZE,0);
+  //copy process pagetable to kerneal pagetable
+  vmcopypage(pagetable,p->kernelpagetable,0,sz);  
+
+  //vmcopypage(pagetable,p->kernelpagetable,0,p->sz);   //add code
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
@@ -116,6 +127,9 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  if(p->pid==1)
+    vmprint(p->pagetable);
+    
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

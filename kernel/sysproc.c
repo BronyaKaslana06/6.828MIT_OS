@@ -38,7 +38,7 @@ sys_wait(void)
   return wait(p);
 }
 
-uint64
+/* uint64
 sys_sbrk(void)
 {
   int addr;
@@ -49,6 +49,27 @@ sys_sbrk(void)
   addr = myproc()->sz;
   if(growproc(n) < 0)
     return -1;
+  return addr;
+} */
+
+uint64
+sys_sbrk(void)
+{
+  int addr;
+  int n;
+  struct proc *p=myproc();
+  if(argint(0, &n) < 0)
+    return -1;
+  addr = p->sz;
+  if(growproc(n) < 0)
+    return -1;
+  if(n>0){
+    vmcopypage(p->pagetable,p->kernelpagetable,addr,n);
+  }else{
+      for(int j=addr-PGSIZE;j>=addr+n;j-=PGSIZE){
+          uvmunmap(p->kernelpagetable,j,1,0);
+      }
+  }
   return addr;
 }
 
