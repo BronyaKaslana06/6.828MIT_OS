@@ -76,6 +76,18 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
+   // new code lab 4-3
+  if(which_dev == 2){   // clock interrupt
+    // clock passticks add 1
+    if(p->interval != 0 && ++p->passedticks == p->interval){
+      //p->passedticks = 0;   //lab 4-3-1 add
+      //lab 4-3-2 add
+      p->trapframecopy = p->trapframe + 512;  
+      memmove(p->trapframecopy,p->trapframe,sizeof(struct trapframe));    		// copy trapframe
+      p->trapframe->epc = p->handler;
+    }
+  }
+
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
