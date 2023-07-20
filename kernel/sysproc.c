@@ -43,12 +43,26 @@ sys_sbrk(void)
 {
   int addr;
   int n;
+  struct proc *p;
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
+  p = myproc();
+  addr = p->sz;
+  
+  if(n >= 0 && addr + n >= addr){
+    p->sz += n;    
+  } 
+  else if(n < 0 && addr + n >= PGROUNDUP(p->trapframe->sp)){
+    p->sz = uvmdealloc(p->pagetable, addr, addr + n);
+  } 
+  else {
     return -1;
+  }
+
+// lab 5-1 delete
+//  if(growproc(n) < 0)
+//    return -1;
   return addr;
 }
 
