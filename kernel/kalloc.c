@@ -36,7 +36,10 @@ freerange(void *pa_start, void *pa_end)
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  {
+    increfcnt((uint64)p); // cow +1 lab 6 add
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -51,7 +54,13 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
+  // COW计数-1
+  if (decrefcnt((uint64) pa)) {
+  //计数!=0，返回
+    return;
+  }
+
+  //计数==0，回收
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
@@ -76,6 +85,7 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
+  increfcnt((uint64)r);  //lab 6 add
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;

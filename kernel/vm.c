@@ -111,6 +111,48 @@ walkaddr(pagetable_t pagetable, uint64 va)
   return pa;
 }
 
+//lab 6 add
+uint64
+walkcowaddr(pagetable_t pagetable, uint64 va) 
+{
+  pte_t *pte;
+  uint64 pa;
+  char* mem;
+  uint flags;
+
+  if (va >= MAXVA)
+    return 0;
+
+  pte = walk(pagetable, va, 0);
+  if (pte == 0)
+      return 0;
+  if ((*pte & PTE_V) == 0)
+      return 0;
+  if ((*pte & PTE_U) == 0)
+    return 0;
+  pa = PTE2PA(*pte);
+  // 写标志位判断
+  if ((*pte & PTE_W) == 0) {
+    // 无COW标志位，不可写，直接返回
+    if ((*pte & PTE_COW) == 0) {
+        return 0;
+    }
+    // 分配新物理页
+    if ((mem = kalloc()) == 0) {
+      return 0;
+    }
+    memmove(mem, (void*)pa, PGSIZE);
+    flags = (PTE_FLAGS(*pte) & (~PTE_COW)) | PTE_W;
+    uvmunmap(pagetable, PGROUNDDOWN(va), 1, 1);
+    if (mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, flags) != 0) {
+      kfree(mem);
+      return 0;
+    }
+    return (uint64)mem;   
+  }
+  return pa;
+}
+
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
@@ -311,7 +353,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  //char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,14 +361,20 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+
+    // 清除 PTE_W 标志，增加 COW 标志
+    flags = (PTE_FLAGS(*pte) & (~PTE_W)) | PTE_COW;
+    *pte = PA2PTE(pa) | flags;  
+
+    //flags = PTE_FLAGS(*pte);
+    /*if((mem = kalloc()) == 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    memmove(mem, (char*)pa, PGSIZE);*/
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+      //kfree(mem);
       goto err;
     }
+    increfcnt(pa);  //lab 6 add  cow引用计数+1
   }
   return 0;
 
@@ -358,7 +406,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
+    pa0 = walkcowaddr(pagetable, va0);  // lab 6 modified
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
@@ -440,3 +488,4 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
