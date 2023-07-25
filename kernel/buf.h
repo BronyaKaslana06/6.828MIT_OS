@@ -8,5 +8,6 @@ struct buf {
   struct buf *prev; // LRU cache list
   struct buf *next;
   uchar data[BSIZE];
+  uint lastuse; //lab 8-2 add
 };
 
