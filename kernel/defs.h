@@ -171,6 +171,9 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             uvmsetdirtywrite(pagetable_t, uint64);      // lab 10 add
+int             uvmgetdirty(pagetable_t pagetable, uint64 va);  // lab 10 add   
+
 
 // plic.c
 void            plicinit(void);

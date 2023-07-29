@@ -172,9 +172,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      //panic("uvmunmap: not mapped");
+      continue;   // lab 10 modified
     if(PTE_FLAGS(*pte) == PTE_V)
-      panic("uvmunmap: not a leaf");
+      //panic("uvmunmap: not a leaf");
+      continue;   //lab 10 modified
     if(do_free){
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
@@ -428,4 +430,25 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// lab 10 add
+// 取脏页标志位
+int uvmgetdirty(pagetable_t pagetable, uint64 va) {
+  pte_t *pte = walk(pagetable, va, 0);
+  if(pte == 0) {
+    return 0;
+  }
+  return (*pte & PTE_D);
+}
+
+// lab 10 add
+// 写入脏页标志位
+int uvmsetdirtywrite(pagetable_t pagetable, uint64 va) {
+  pte_t *pte = walk(pagetable, va, 0);
+  if(pte == 0) {
+    return -1;
+  }
+  *pte |= PTE_D | PTE_W;
+  return 0;
 }

@@ -15,6 +15,10 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"  // lab 10 add
+
+#define max(a, b) ((a) > (b) ? (a) : (b))   // lab 10 add
+#define min(a, b) ((a) < (b) ? (a) : (b))   // lab 10 add
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -483,4 +487,143 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+// lab 10 add
+// munmap system call
+uint64 sys_munmap(void) {
+  uint64 addr, va;
+  int len;
+  struct proc *p = myproc();
+  struct vm_area *vma = 0;
+  uint maxsz, n, n1;
+  int i;
+//判断参数合法性
+  if (argaddr(0, &addr) < 0 || argint(1, &len) < 0) {
+    return -1;
+  }
+  if (addr % PGSIZE || len < 0) {
+    return -1;
+  }
+
+  // 寻找对应的VMA
+  for (i = 0; i < NVMA; ++i) {
+    if (p->vma[i].addr && addr >= p->vma[i].addr
+        && addr + len <= p->vma[i].addr + p->vma[i].len) {
+      vma = &p->vma[i];
+      break;
+    }
+  }
+   //无VMA，直接返回失败
+  if (!vma) {
+    return -1;
+  }
+
+  // 若为0，不需释放
+  if (len == 0) {
+    return 0;
+  }
+
+  if ((vma->flags & MAP_SHARED)) {
+    // 一次能写入的最大长度
+    maxsz = ((MAXOPBLOCKS - 1 - 1 - 2) / 2) * BSIZE;
+    for (va = addr; va < addr + len; va += PGSIZE) {
+      if (uvmgetdirty(p->pagetable, va) == 0) {
+        continue;
+      }
+      
+      n = min(PGSIZE, addr + len - va);
+      for (i = 0; i < n; i += n1) {
+        n1 = min(maxsz, n - i);
+        begin_op();
+        ilock(vma->f->ip);
+        if (writei(vma->f->ip, 1, va + i, va - vma->addr + vma->offset + i, n1) != n1) {
+          iunlock(vma->f->ip);
+          end_op();
+          return -1;
+        }
+        iunlock(vma->f->ip);
+        end_op();
+      }
+    }
+  }
+  uvmunmap(p->pagetable, addr, (len - 1) / PGSIZE + 1, 1);
+  // 更新VMA
+  if (addr == vma->addr && len == vma->len) {
+    vma->addr = 0;
+    vma->len = 0;
+    vma->offset = 0;
+    vma->flags = 0;
+    vma->prot = 0;
+    fileclose(vma->f);
+    vma->f = 0;
+  } else if (addr == vma->addr) {
+    vma->addr += len;
+    vma->offset += len;
+    vma->len -= len;
+  } else if (addr + len == vma->addr + vma->len) {
+    vma->len -= len;
+  } else {
+    panic("unexpected munmap");
+  }
+  return 0;
+}
+
+// lab 10 add
+uint64 sys_mmap(void) {
+  uint64 addr;
+  int len, prot, flags, offset;
+  struct file *f;
+  struct vm_area *vma = 0;
+  struct proc *p = myproc();
+  int i;
+
+  // 检查合法性
+  if (argaddr(0, &addr) < 0 || argint(1, &len) < 0
+      || argint(2, &prot) < 0 || argint(3, &flags) < 0
+      || argfd(4, 0, &f) < 0 || argint(5, &offset) < 0) {
+    return -1;
+  }
+  if (flags != MAP_SHARED && flags != MAP_PRIVATE) {
+    return -1;
+  }
+  if (flags == MAP_SHARED && f->writable == 0 && (prot & PROT_WRITE)) {
+    return -1;
+  }
+  if (len < 0 || offset < 0 || offset % PGSIZE) {
+    return -1;
+  }
+
+  // 找到空的vma并申请
+  for (i = 0; i < NVMA; ++i) {
+    if (!p->vma[i].addr) {
+      vma = &p->vma[i];
+      break;
+    }
+  }
+  if (!vma) {
+    return -1;
+  }
+
+  addr = MMAPMINADDR;
+  for (i = 0; i < NVMA; ++i) {
+    if (p->vma[i].addr) {
+      // get the max address of the mapped memory
+      addr = max(addr, p->vma[i].addr + p->vma[i].len);
+    }
+  }
+  addr = PGROUNDUP(addr);
+  if (addr + len > TRAPFRAME) {
+    return -1;
+  }
+  // 将对应的字段填入到vma中
+  vma->addr = addr;
+  vma->len = len;
+  vma->prot = prot;
+  vma->flags = flags;
+  vma->offset = offset;
+  vma->f = f;
+  filedup(f);     
+
+  return addr;
 }

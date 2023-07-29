@@ -14,6 +14,7 @@ r_mhartid()
 #define MSTATUS_MPP_S (1L << 11)
 #define MSTATUS_MPP_U (0L << 11)
 #define MSTATUS_MIE (1L << 3)    // machine-mode interrupt enable.
+#define PTE_D (1L << 7)          // 脏页标志位 lab 10 add
 
 static inline uint64
 r_mstatus()
